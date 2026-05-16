@@ -1670,6 +1670,10 @@ export const RegisterWebhookUrlMessageSchema = z.object({
   url: z.string().url(),
 });
 
+export const UnregisterWebhookUrlMessageSchema = z.object({
+  type: z.literal("unregister_webhook_url"),
+});
+
 // ============================================================================
 // Terminal Messages
 // ============================================================================
@@ -1834,6 +1838,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ListCommandsRequestSchema,
   RegisterPushTokenMessageSchema,
   RegisterWebhookUrlMessageSchema,
+  UnregisterWebhookUrlMessageSchema,
   ListTerminalsRequestSchema,
   SubscribeTerminalsRequestSchema,
   UnsubscribeTerminalsRequestSchema,
@@ -3832,6 +3837,7 @@ export type ListCommandsRequest = z.infer<typeof ListCommandsRequestSchema>;
 export type ListCommandsResponse = z.infer<typeof ListCommandsResponseSchema>;
 export type RegisterPushTokenMessage = z.infer<typeof RegisterPushTokenMessageSchema>;
 export type RegisterWebhookUrlMessage = z.infer<typeof RegisterWebhookUrlMessageSchema>;
+export type UnregisterWebhookUrlMessage = z.infer<typeof UnregisterWebhookUrlMessageSchema>;
 
 // Terminal message types
 export type ListTerminalsRequest = z.infer<typeof ListTerminalsRequestSchema>;

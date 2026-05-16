@@ -2181,6 +2181,9 @@ export class Session {
       case "register_webhook_url":
         this.handleRegisterWebhookUrl(msg.url);
         return;
+      case "unregister_webhook_url":
+        this.handleUnregisterWebhookUrl();
+        return;
     }
   }
 
@@ -4428,6 +4431,12 @@ export class Session {
   private handleRegisterWebhookUrl(url: string): void {
     this.webhookUrl = url;
     this.sessionLogger.info({ url }, "Registered webhook URL");
+  }
+
+  private handleUnregisterWebhookUrl(): void {
+    if (this.webhookUrl === null) return;
+    this.webhookUrl = null;
+    this.sessionLogger.info("Unregistered webhook URL");
   }
 
   /**
