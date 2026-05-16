@@ -135,7 +135,10 @@ import {
   deriveWorkspaceAgentVisibility,
   workspaceAgentVisibilityEqual,
 } from "@/workspace-tabs/agent-visibility";
-import { deriveWorkspacePaneState } from "@/screens/workspace/workspace-pane-state";
+import {
+  deriveWorkspacePaneState,
+  resolveSideFileOpenPlacement,
+} from "@/screens/workspace/workspace-pane-state";
 import {
   buildWorkspacePaneContentModel,
   WorkspacePaneContent,
@@ -164,6 +167,7 @@ const EMPTY_UI_TABS: WorkspaceTab[] = [];
 const EMPTY_WORKSPACE_SCRIPTS: WorkspaceDescriptor["scripts"] = [];
 const EMPTY_PINNED_AGENT_IDS = new Set<string>();
 const EMPTY_SET = new Set<string>();
+const COMPACT_WEB_GESTURE_TOUCH_ACTION = isWeb ? "auto" : "pan-y";
 
 const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
 const ThemedEllipsis = withUnistyles(Ellipsis);
@@ -2028,7 +2032,7 @@ function WorkspaceScreenContent({
   );
 
   const handleOpenFileFromChat = useCallback(
-    ({ filePath }: { filePath: string }) => {
+    (filePath: string) => {
       const normalizedFilePath = filePath.trim();
       if (!normalizedFilePath) {
         return;
@@ -2036,6 +2040,51 @@ function WorkspaceScreenContent({
       handleOpenFileFromExplorer(normalizedFilePath);
     },
     [handleOpenFileFromExplorer],
+  );
+
+  const handleOpenFileFromChatInSidePane = useCallback(
+    (input: { filePath: string; sourcePaneId?: string }) => {
+      const normalizedFilePath = input.filePath.trim();
+      if (!normalizedFilePath) {
+        return;
+      }
+      if (!persistenceKey || isMobile || !input.sourcePaneId) {
+        handleOpenFileFromExplorer(normalizedFilePath);
+        return;
+      }
+
+      const target: WorkspaceTabTarget = { kind: "file", path: normalizedFilePath };
+      const placement = resolveSideFileOpenPlacement({
+        layout: workspaceLayout,
+        sourcePaneId: input.sourcePaneId,
+        tabs: uiTabs,
+        target,
+      });
+      if (placement.kind === "focus-side-pane") {
+        focusWorkspacePane(persistenceKey, placement.paneId);
+      } else if (placement.kind === "split-side-pane") {
+        splitWorkspacePaneEmpty(persistenceKey, {
+          targetPaneId: placement.paneId,
+          position: "right",
+        });
+      }
+
+      const tabId = openWorkspaceTabFocused(persistenceKey, target);
+      if (tabId) {
+        navigateToTabId(tabId);
+      }
+    },
+    [
+      handleOpenFileFromExplorer,
+      isMobile,
+      focusWorkspacePane,
+      navigateToTabId,
+      openWorkspaceTabFocused,
+      persistenceKey,
+      splitWorkspacePaneEmpty,
+      uiTabs,
+      workspaceLayout,
+    ],
   );
 
   const [_hoveredTabKey, setHoveredTabKey] = useState<string | null>(null);
@@ -2706,17 +2755,25 @@ function WorkspaceScreenContent({
           }
           retargetWorkspaceTab(persistenceKey, input.tab.tabId, target);
         },
-        onOpenWorkspaceFile: (filePath) => {
+        onOpenWorkspaceFile: (filePath, disposition) => {
           if (input.focusPaneBeforeOpen && input.paneId && persistenceKey) {
             focusWorkspacePane(persistenceKey, input.paneId);
           }
-          handleOpenFileFromChat({ filePath });
+          if (disposition === "side") {
+            handleOpenFileFromChatInSidePane({
+              filePath,
+              sourcePaneId: input.paneId ?? undefined,
+            });
+            return;
+          }
+          handleOpenFileFromChat(filePath);
         },
         onOpenImportSheet: openImportSheet,
       }),
     [
       handleCloseTabById,
       handleOpenFileFromChat,
+      handleOpenFileFromChatInSidePane,
       focusWorkspacePane,
       navigateToTabId,
       normalizedServerId,
@@ -3213,7 +3270,10 @@ function WorkspaceScreenContent({
 
               <View style={styles.centerContent}>
                 {isMobile ? (
-                  <GestureDetector gesture={explorerOpenGesture} touchAction="pan-y">
+                  <GestureDetector
+                    gesture={explorerOpenGesture}
+                    touchAction={COMPACT_WEB_GESTURE_TOUCH_ACTION}
+                  >
                     <View style={styles.content}>{content}</View>
                   </GestureDetector>
                 ) : (

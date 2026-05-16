@@ -10,6 +10,7 @@ import { AgentStreamView } from "@/components/agent-stream-view";
 import { composerWorkspaceAttachment } from "@/attachments/composer-workspace-attachments";
 import type { ImageAttachment } from "@/components/message-input";
 import { useAgentInputDraft } from "@/hooks/use-agent-input-draft";
+import type { CreateAgentInitialValues } from "@/hooks/use-agent-form-state";
 import { useDraftAgentCreateFlow } from "@/hooks/use-draft-agent-create-flow";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { buildWorkspaceDraftAgentConfig } from "@/screens/workspace/workspace-draft-agent-config";
@@ -19,6 +20,7 @@ import type { Agent } from "@/stores/session-store";
 import { useWorkspaceExecutionAuthority } from "@/stores/session-store-hooks";
 import { useWorkspaceDraftSubmissionStore } from "@/stores/workspace-draft-submission-store";
 import { encodeImages } from "@/utils/encode-images";
+import type { OpenFileDisposition } from "@/utils/workspace-file-open";
 import { shouldAutoFocusWorkspaceDraftComposer } from "@/screens/workspace/workspace-draft-pane-focus";
 import type { AgentCapabilityFlags } from "@server/server/agent/agent-sdk-types";
 import type { AgentSnapshotPayload } from "@server/shared/messages";
@@ -31,8 +33,10 @@ import {
 import type { UserMessageImageAttachment } from "@/types/stream";
 import { MAX_CONTENT_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
+import type { WorkspaceDraftTabSetup } from "@/stores/workspace-tabs-store";
 
 const EMPTY_PENDING_PERMISSIONS = new Map();
+const EMPTY_ONLINE_SERVER_IDS: string[] = [];
 const DRAFT_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: true,
   supportsSessionPersistence: false,
@@ -271,14 +275,51 @@ function buildDraftAgentSnapshot(input: {
   };
 }
 
+function buildDraftInitialValues(input: {
+  workingDir: string | null;
+  initialSetup: WorkspaceDraftTabSetup | null;
+}): CreateAgentInitialValues | undefined {
+  if (!input.workingDir) {
+    return undefined;
+  }
+  if (!input.initialSetup) {
+    return { workingDir: input.workingDir };
+  }
+  return {
+    workingDir: input.workingDir,
+    provider: input.initialSetup.provider,
+    modeId: input.initialSetup.modeId,
+    model: input.initialSetup.model,
+    thinkingOptionId: input.initialSetup.thinkingOptionId,
+  };
+}
+
+function resolveDraftWorkingDirectory(input: {
+  workspaceDirectory: string | null;
+  initialSetup: WorkspaceDraftTabSetup | null;
+}): string | null {
+  if (input.initialSetup) {
+    return input.initialSetup.cwd;
+  }
+  return input.workspaceDirectory;
+}
+
+function resolveOnlineServerIds(input: { isConnected: boolean; serverId: string }): string[] {
+  if (!input.isConnected) {
+    return EMPTY_ONLINE_SERVER_IDS;
+  }
+  return [input.serverId];
+}
+
 interface WorkspaceDraftAgentTabProps {
   serverId: string;
   workspaceId: string;
   tabId: string;
   draftId: string;
+  initialSetup?: WorkspaceDraftTabSetup;
   isPaneFocused: boolean;
   onCreated: (snapshot: AgentSnapshotPayload) => void;
-  onOpenWorkspaceFile: (input: { filePath: string }) => void;
+  onOpenWorkspaceFile: (input: { filePath: string; disposition: OpenFileDisposition }) => void;
   onOpenImportSheet?: () => void;
 }
 
@@ -287,6 +328,7 @@ export function WorkspaceDraftAgentTab({
   workspaceId,
   tabId,
   draftId,
+  initialSetup = undefined,
   isPaneFocused,
   onCreated,
   onOpenWorkspaceFile,
@@ -298,6 +340,16 @@ export function WorkspaceDraftAgentTab({
   const workspaceAuthority = useWorkspaceExecutionAuthority(serverId, workspaceId);
   const workspaceExecutionAuthority = workspaceAuthority?.ok ? workspaceAuthority.authority : null;
   const workspaceDirectory = workspaceExecutionAuthority?.workspaceDirectory ?? null;
+  const draftSetup = initialSetup ?? null;
+  const draftWorkingDirectory = resolveDraftWorkingDirectory({
+    workspaceDirectory,
+    initialSetup: draftSetup,
+  });
+  const draftInitialValues = buildDraftInitialValues({
+    workingDir: draftWorkingDirectory,
+    initialSetup: draftSetup,
+  });
+  const onlineServerIds = resolveOnlineServerIds({ isConnected, serverId });
   const addImagesRef = useRef<((images: ImageAttachment[]) => void) | null>(null);
   const draftStoreKey = useMemo(
     () =>
@@ -312,10 +364,11 @@ export function WorkspaceDraftAgentTab({
     draftKey: draftStoreKey,
     composer: {
       initialServerId: serverId,
-      initialValues: workspaceDirectory ? { workingDir: workspaceDirectory } : undefined,
+      initialValues: draftInitialValues,
+      initialFeatureValues: draftSetup?.featureValues,
       isVisible: true,
-      onlineServerIds: isConnected ? [serverId] : [],
-      lockedWorkingDir: workspaceDirectory ?? undefined,
+      onlineServerIds,
+      lockedWorkingDir: draftWorkingDirectory ?? undefined,
     },
   });
   const composerState = draftInput.composerState;
@@ -381,7 +434,7 @@ export function WorkspaceDraftAgentTab({
         allowsEmptyAutoSubmit,
         composerState,
         autoSubmitConfig,
-        workspaceDirectory,
+        workspaceDirectory: draftWorkingDirectory,
         hasClient: Boolean(client),
       }),
     onBeforeSubmit: () => {
@@ -396,7 +449,7 @@ export function WorkspaceDraftAgentTab({
         attempt,
         serverId,
         tabId,
-        workspaceDirectory,
+        workspaceDirectory: draftWorkingDirectory,
         autoSubmitConfig,
         composerState,
       }),
@@ -407,7 +460,7 @@ export function WorkspaceDraftAgentTab({
         images,
         attachments,
         client,
-        workspaceDirectory,
+        workspaceDirectory: draftWorkingDirectory,
         workspaceExecutionAuthority,
         autoSubmitConfig,
         composerState,
@@ -421,7 +474,7 @@ export function WorkspaceDraftAgentTab({
   const isReadyForPendingAutoSubmit = Boolean(
     pendingAutoSubmit &&
     draftInput.isHydrated &&
-    workspaceDirectory &&
+    draftWorkingDirectory &&
     client &&
     !isSubmitting &&
     !composerState.isModelLoading,

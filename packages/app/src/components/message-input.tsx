@@ -3,6 +3,7 @@ import {
   Text,
   TextInput,
   ActivityIndicator,
+  useWindowDimensions,
   NativeSyntheticEvent,
   TextInputContentSizeChangeEventData,
   TextInputKeyPressEventData,
@@ -53,6 +54,7 @@ import { getShortcutOs } from "@/utils/shortcut-platform";
 import type { MessageInputKeyboardActionKind } from "@/keyboard/actions";
 import { isImeComposingKeyboardEvent } from "@/utils/keyboard-ime";
 import { isWeb } from "@/constants/platform";
+import { useIsCompactFormFactor } from "@/constants/layout";
 import { useComposerHeightMirror } from "./composer-height-mirror";
 import { computeCanStartDictation } from "./message-input-state";
 
@@ -143,7 +145,8 @@ export interface MessageInputRef {
 
 const MIN_INPUT_HEIGHT_MOBILE = 30;
 const MIN_INPUT_HEIGHT_DESKTOP = 46;
-const MAX_INPUT_HEIGHT = 160;
+const DEFAULT_MAX_INPUT_HEIGHT = 160;
+const MAX_INPUT_VIEWPORT_RATIO = 0.5;
 const MIN_INPUT_HEIGHT = isWeb ? MIN_INPUT_HEIGHT_DESKTOP : MIN_INPUT_HEIGHT_MOBILE;
 
 type WebTextInputKeyPressEvent = NativeSyntheticEvent<
@@ -365,6 +368,7 @@ function resolveSendTooltipLabel(input: {
 
 interface DesktopKeyPressContext {
   onKeyPressCallback: ((event: { key: string; preventDefault: () => void }) => boolean) | undefined;
+  submitOnEnter: boolean;
   isAgentRunning: boolean;
   onQueue: ((payload: MessagePayload) => void) | undefined;
   isSubmitDisabled: boolean;
@@ -391,6 +395,7 @@ function handleDesktopKeyPressImpl(
   const { shiftKey, metaKey, ctrlKey } = event.nativeEvent;
 
   if (event.nativeEvent.key !== "Enter") return;
+  if (!ctx.submitOnEnter) return;
   if (shiftKey) return;
 
   if ((metaKey || ctrlKey) && ctx.isAgentRunning && ctx.onQueue) {
@@ -980,17 +985,22 @@ function computeIsDictationStartEnabled(
   return (isReadyForDictation ?? isConnected) && !disabled;
 }
 
-function computeTextInputHeightStyle(inputHeight: number) {
+function resolveMaxInputHeight(windowHeight: number): number {
+  if (!Number.isFinite(windowHeight) || windowHeight <= 0) return DEFAULT_MAX_INPUT_HEIGHT;
+  return Math.max(DEFAULT_MAX_INPUT_HEIGHT, Math.floor(windowHeight * MAX_INPUT_VIEWPORT_RATIO));
+}
+
+function computeTextInputHeightStyle(inputHeight: number, maxInputHeight: number) {
   if (isWeb) {
     return {
       height: inputHeight,
       minHeight: MIN_INPUT_HEIGHT,
-      maxHeight: MAX_INPUT_HEIGHT,
+      maxHeight: maxInputHeight,
     };
   }
   return {
     minHeight: MIN_INPUT_HEIGHT,
-    maxHeight: MAX_INPUT_HEIGHT,
+    maxHeight: maxInputHeight,
   };
 }
 
@@ -1187,6 +1197,9 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       inputWrapperStyle,
       attachmentSlot,
     } = resolveMessageInputProps(props);
+    const isCompact = useIsCompactFormFactor();
+    const { height: windowHeight } = useWindowDimensions();
+    const maxInputHeight = resolveMaxInputHeight(windowHeight);
     const buttonIconSize = isWeb ? ICON_SIZE.md : ICON_SIZE.lg;
     const toast = useToast();
     const voice = useVoiceOptional();
@@ -1451,7 +1464,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const handleSendMessage = useCallback(
       () =>
         sendMessageImpl({
-          value,
+          value: valueRef.current,
           attachments,
           hasExternalContent,
           allowEmptySubmit,
@@ -1462,7 +1475,6 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         }),
       [
         allowEmptySubmit,
-        value,
         attachments,
         cwd,
         onSubmit,
@@ -1475,14 +1487,14 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     const handleQueueMessage = useCallback(
       () =>
         queueMessageImpl({
-          value,
+          value: valueRef.current,
           attachments,
           cwd,
           onQueue,
           onChangeText,
           onMinimizeHeight: minimizeInputHeight,
         }),
-      [value, attachments, cwd, onQueue, onChangeText, minimizeInputHeight],
+      [attachments, cwd, onQueue, onChangeText, minimizeInputHeight],
     );
 
     const handleDefaultSendAction = useCallback(() => {
@@ -1519,7 +1531,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     }, [getWebTextArea]);
 
     const inputScrollbar = useWebElementScrollbar(webTextareaRef, {
-      enabled: isWeb && inputHeight >= MAX_INPUT_HEIGHT,
+      enabled: isWeb,
     });
 
     usePasteImagesEffect({
@@ -1533,20 +1545,24 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
     const setBoundedInputHeight = useCallback(
       (nextHeight: number) => {
-        const bounded = Math.max(MIN_INPUT_HEIGHT, Math.min(MAX_INPUT_HEIGHT, nextHeight));
+        const bounded = Math.max(MIN_INPUT_HEIGHT, Math.min(maxInputHeight, nextHeight));
         if (Math.abs(inputHeightRef.current - bounded) < 1) return;
         inputHeightRef.current = bounded;
         setInputHeight(bounded);
         onHeightChange?.(bounded);
       },
-      [onHeightChange],
+      [maxInputHeight, onHeightChange],
     );
+
+    useEffect(() => {
+      setBoundedInputHeight(inputHeightRef.current);
+    }, [setBoundedInputHeight]);
 
     useComposerHeightMirror({
       value,
       textareaRef: webTextareaRef,
       minHeight: MIN_INPUT_HEIGHT,
-      maxHeight: MAX_INPUT_HEIGHT,
+      maxHeight: maxInputHeight,
       onHeight: setBoundedInputHeight,
     });
 
@@ -1567,12 +1583,14 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       [onSelectionChangeCallback],
     );
 
-    const shouldHandleDesktopSubmit = isWeb;
+    const shouldHandleWebKeyPress = isWeb;
+    const shouldSubmitOnEnter = isWeb && !isCompact;
 
     function handleDesktopKeyPress(event: WebTextInputKeyPressEvent) {
-      if (!shouldHandleDesktopSubmit) return;
+      if (!shouldHandleWebKeyPress) return;
       handleDesktopKeyPressImpl(event, {
         onKeyPressCallback,
+        submitOnEnter: shouldSubmitOnEnter,
         isAgentRunning,
         onQueue,
         isSubmitDisabled,
@@ -1623,6 +1641,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
     const handleInputChange = useCallback(
       (nextValue: string) => {
+        valueRef.current = nextValue;
         onChangeText(nextValue);
       },
       [onChangeText],
@@ -1668,8 +1687,8 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       [inputWrapperStyle, inputAnimatedStyle],
     );
     const textInputStyle = useMemo(
-      () => [styles.textInput, computeTextInputHeightStyle(inputHeight)],
-      [inputHeight],
+      () => [styles.textInput, computeTextInputHeightStyle(inputHeight, maxInputHeight)],
+      [inputHeight, maxInputHeight],
     );
     const sendButtonCombinedStyle = useMemo(
       () => [styles.sendButton, isSendButtonDisabled && styles.buttonDisabled],
@@ -1721,10 +1740,10 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
               onBlur={handleInputBlur}
               style={textInputStyle}
               multiline
-              scrollEnabled={isWeb ? inputHeight >= MAX_INPUT_HEIGHT : true}
+              scrollEnabled={isWeb ? inputHeight >= maxInputHeight : true}
               onContentSizeChange={handleContentSizeChange}
               editable={!isDictating && !isRealtimeVoiceForCurrentAgent && !disabled}
-              onKeyPress={shouldHandleDesktopSubmit ? handleDesktopKeyPress : undefined}
+              onKeyPress={shouldHandleWebKeyPress ? handleDesktopKeyPress : undefined}
               onSelectionChange={handleSelectionChange}
               autoFocus={isWeb && autoFocus}
             />

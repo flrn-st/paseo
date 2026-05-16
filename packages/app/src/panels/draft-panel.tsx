@@ -6,6 +6,7 @@ import { usePaneContext, usePaneFocus } from "@/panels/pane-context";
 import type { PanelRegistration } from "@/panels/panel-registry";
 import { useSessionStore } from "@/stores/session-store";
 import { normalizeAgentSnapshot } from "@/utils/agent-snapshots";
+import type { OpenFileDisposition } from "@/utils/workspace-file-open";
 
 function useDraftPanelDescriptor() {
   return {
@@ -31,8 +32,8 @@ function DraftPanel() {
   invariant(target.kind === "draft", "DraftPanel requires draft target");
 
   const handleOpenWorkspaceFile = useCallback(
-    ({ filePath }: { filePath: string }) => {
-      openFileInWorkspace(filePath);
+    ({ filePath, disposition }: { filePath: string; disposition: OpenFileDisposition }) => {
+      openFileInWorkspace(filePath, disposition);
     },
     [openFileInWorkspace],
   );
@@ -56,6 +57,7 @@ function DraftPanel() {
       workspaceId={workspaceId}
       tabId={tabId}
       draftId={target.draftId}
+      initialSetup={target.setup}
       isPaneFocused={isInteractive}
       onOpenWorkspaceFile={handleOpenWorkspaceFile}
       onCreated={handleCreated}
