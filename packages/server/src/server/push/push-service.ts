@@ -60,6 +60,42 @@ export class PushService {
     await Promise.all(batches.map((batch) => this.sendBatch(batch)));
   }
 
+  /**
+   * Fire-and-forget POST of the same payload to every configured webhook URL.
+   * Webhook URLs are an opt-in alternative to Expo for clients that bring
+   * their own notification bridge (e.g. the native iOS app + APNs relay).
+   * Failures are logged and do not propagate.
+   */
+  async sendWebhooks(
+    urls: string[],
+    payload: PushPayload,
+    authBearer: string | null,
+  ): Promise<void> {
+    if (urls.length === 0) {
+      return;
+    }
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (authBearer) {
+      headers.Authorization = `Bearer ${authBearer}`;
+    }
+    const body = JSON.stringify(payload);
+    await Promise.all(
+      urls.map(async (url) => {
+        try {
+          const response = await fetch(url, { method: "POST", headers, body });
+          if (!response.ok) {
+            this.logger.warn(
+              { url, status: response.status, statusText: response.statusText },
+              "Webhook responded with non-2xx",
+            );
+          }
+        } catch (error) {
+          this.logger.warn({ err: error, url }, "Webhook POST failed");
+        }
+      }),
+    );
+  }
+
   private async sendBatch(messages: ExpoPushMessage[]): Promise<void> {
     try {
       const response = await fetch(EXPO_PUSH_URL, {

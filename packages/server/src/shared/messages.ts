@@ -1665,6 +1665,11 @@ export const RegisterPushTokenMessageSchema = z.object({
   token: z.string(),
 });
 
+export const RegisterWebhookUrlMessageSchema = z.object({
+  type: z.literal("register_webhook_url"),
+  url: z.string().url(),
+});
+
 // ============================================================================
 // Terminal Messages
 // ============================================================================
@@ -1828,6 +1833,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   PingMessageSchema,
   ListCommandsRequestSchema,
   RegisterPushTokenMessageSchema,
+  RegisterWebhookUrlMessageSchema,
   ListTerminalsRequestSchema,
   SubscribeTerminalsRequestSchema,
   UnsubscribeTerminalsRequestSchema,
@@ -3825,6 +3831,7 @@ export type ClientHeartbeatMessage = z.infer<typeof ClientHeartbeatMessageSchema
 export type ListCommandsRequest = z.infer<typeof ListCommandsRequestSchema>;
 export type ListCommandsResponse = z.infer<typeof ListCommandsResponseSchema>;
 export type RegisterPushTokenMessage = z.infer<typeof RegisterPushTokenMessageSchema>;
+export type RegisterWebhookUrlMessage = z.infer<typeof RegisterWebhookUrlMessageSchema>;
 
 // Terminal message types
 export type ListTerminalsRequest = z.infer<typeof ListTerminalsRequestSchema>;

@@ -492,8 +492,15 @@ export class VoiceAssistantWebSocketServer {
 
     const pushLogger = this.logger.child({ module: "push" });
     this.pushTokenStore = new PushTokenStore(pushLogger, join(paseoHome, "push-tokens.json"));
+    const envWebhookUrl = process.env.PASEO_NOTIFICATION_WEBHOOK_URL?.trim() || null;
+    const webhookAuthPassword = process.env.PASEO_PASSWORD?.trim() || null;
     this.pushNotificationSender =
-      pushNotificationSender ?? createPushNotificationSender(pushLogger, this.pushTokenStore);
+      pushNotificationSender ??
+      createPushNotificationSender(pushLogger, this.pushTokenStore, {
+        envWebhookUrl,
+        getSessionWebhookUrls: () => this.collectSessionWebhookUrls(),
+        authPassword: webhookAuthPassword,
+      });
 
     this.agentManager.setAgentAttentionCallback((params) => {
       void this.broadcastAgentAttention(params).catch((err) => {
@@ -1632,6 +1639,15 @@ export class VoiceAssistantWebSocketServer {
       focusedAgentId: activity.focusedAgentId,
       lastActivityAtMs: activity.lastActivityAt.getTime(),
     };
+  }
+
+  private collectSessionWebhookUrls(): string[] {
+    const urls = new Set<string>();
+    for (const connection of this.sessions.values()) {
+      const url = connection.session.getWebhookUrl();
+      if (url) urls.add(url);
+    }
+    return [...urls];
   }
 
   private async broadcastAgentAttention(params: {

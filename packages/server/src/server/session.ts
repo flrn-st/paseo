@@ -748,6 +748,7 @@ export class Session {
   private readonly mcpBaseUrl: string | null;
   private readonly downloadTokenStore: DownloadTokenStore;
   private readonly pushTokenStore: PushTokenStore;
+  private webhookUrl: string | null = null;
   private unsubscribeAgentEvents: (() => void) | null = null;
   private agentUpdatesSubscription: AgentUpdatesSubscriptionState | null = null;
   private workspaceUpdatesSubscription: WorkspaceUpdatesSubscriptionState | null = null;
@@ -2176,6 +2177,9 @@ export class Session {
         return;
       case "register_push_token":
         this.handleRegisterPushToken(msg.token);
+        return;
+      case "register_webhook_url":
+        this.handleRegisterWebhookUrl(msg.url);
         return;
     }
   }
@@ -4410,6 +4414,20 @@ export class Session {
   private handleRegisterPushToken(token: string): void {
     this.pushTokenStore.addToken(token);
     this.sessionLogger.info("Registered push token");
+  }
+
+  /**
+   * Per-session HTTP webhook URL — alternative to (or alongside) Expo.
+   * Lives only on this Session instance and disappears on disconnect; clients
+   * re-register on reconnect, mirroring the existing push-token handshake.
+   */
+  public getWebhookUrl(): string | null {
+    return this.webhookUrl;
+  }
+
+  private handleRegisterWebhookUrl(url: string): void {
+    this.webhookUrl = url;
+    this.sessionLogger.info({ url }, "Registered webhook URL");
   }
 
   /**
